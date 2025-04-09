@@ -7,4 +7,5 @@ cd "$(dirname "$0")"
 source venv/bin/activate
 
 # Run the server
-python src/server.py
+# python src/server.py
+PYTHONWARNINGS="ignore" python src/server.py 2>/dev/null

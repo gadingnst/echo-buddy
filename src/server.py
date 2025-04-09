@@ -60,7 +60,7 @@ def record_dynamic_audio():
 
 def send_audio_to_api(audio_data):
   """Send WAV audio to API and receive MP3 response"""
-  print("✈️ Sending recorded audio...")
+  print("✈️  Sending recorded audio...")
   headers = {"content-type": "audio/wav"}
   response = requests.post(SPEECH_TO_SPEECH_API, headers=headers, data=audio_data)
 

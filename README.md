@@ -83,20 +83,19 @@ arecord -l  # Check microphone
 aplay /usr/share/sounds/alsa/Front_Center.wav  # Test speaker
 ```
 
-6. Run Echo Buddy:
-
-```bash
-python server.py
-```
-
 If needed, configure audio input/output with `alsamixer` and `arecord`.
 
 ---
 
 ## 🚀 Running the Assistant
-
+Make `run.sh` executable:
 ```bash
-python server.py
+chmod +x run.sh
+```
+
+Run the script:
+```bash
+./run.sh
 ```
 
 Once started, the assistant will:
