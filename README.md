@@ -1,4 +1,4 @@
-# 🎙️ Echo Buddy (Raspberry Pi Compatible)
+# 🎙️ Nano Buddy (Raspberry Pi Compatible)
 
 A conversational AI you can talk to using your voice. It listens for a wake word (e.g., `"lilo"`), records your speech, sends it to a server, and replies with generated audio. Built with Python and Speech Recognition.
 
@@ -11,7 +11,6 @@ Repo: [https://github.com/gadingnst/echo-buddy](https://github.com/gadingnst/ech
 - Python 3.11
 - Linux/macOS/Raspberry Pi (or Windows with `mpg123`)
 - Microphone & speaker
-- Internet connection (for API calls)
 
 ---
 
