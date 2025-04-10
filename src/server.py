@@ -88,7 +88,7 @@ def record_with_vad(timeout=10, idle_timeout=15):
 
       # Exit if idle_timeout exceeded without detecting voice
       if not triggered and (current_time - start_time > idle_timeout):
-        print("⏳ Idle timeout reached, returning to standby...")
+        print("🛑 Idle timeout reached.")
         break
 
       frame = stream.read(FRAME_SIZE, exception_on_overflow=False)
@@ -146,7 +146,7 @@ def record_with_vad(timeout=10, idle_timeout=15):
 
 def send_audio_to_api(audio_data):
   """Send WAV audio to API and receive MP3 response"""
-  print("✈️  Sending recorded audio...")
+  print("⏳ Processing recorded audio...")
   headers = {"content-type": "audio/wav"}
   response = requests.post(SPEECH_TO_SPEECH_API, headers=headers, data=audio_data)
 
@@ -179,7 +179,9 @@ def listen_mode():
     else:
       print("🔕 No more response, returning to standby mode...")
       play_local_audio("standby.mp3")
-      print("\n\n\n\n🤖 Say 'lilo' to wake up the assistant.")
+      print("🔁 Returned to standby mode.\n---\n\n")
+      print("🤖 Say 'lilo' to wake up the assistant.")
+      print("🎧 Listening for wake word...")
       break
 
 
@@ -201,10 +203,10 @@ def wake_word_detection():
     print(f"❌ Error during listening: {e}")
 
   print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+  print("🎧 Listening for wake word...")
   while True:
     with mic as source:
       try:
-        print("🎧 Listening for wake word...")
         audio = recognizer.listen(source)
         text = recognizer.recognize_google(audio).lower()
         print(f"🦻 Heard: {text}")
@@ -213,15 +215,16 @@ def wake_word_detection():
           print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
           play_local_audio("wake-up.mp3")
           listen_mode()
-          print("🔁 Returning to standby mode...")
         else:
           print("❌ Skipping, because it's not a wake word\n")
           play_local_audio("skip.mp3")
           print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+          print("🎧 Listening for wake word...")
           pass
 
       except sr.UnknownValueError:
-        print("No wake word detected\n")
+        # print("No wake word detected\n")
+        pass
       except sr.RequestError:
         print("Speech recognition service unavailable\n")
 
