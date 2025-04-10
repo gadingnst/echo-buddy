@@ -9,11 +9,12 @@ import collections
 import time
 import struct
 import math
+import speech_recognition as sr
 
 # API configuration
 WAKE_WORD = "lilo"
 ASSETS_PATH = "assets/"
-BASE_URL = "http://192.168.1.101:3000"
+BASE_URL = "http://192.168.1.103:3000"
 SPEECH_TO_SPEECH_API = f"{BASE_URL}/api/speech-to-speech/generate?key=gadingnst&format="
 
 # Audio configuration
@@ -61,7 +62,7 @@ def is_loud_enough(frame, threshold=ENERGY_THRESHOLD):
 
 
 def record_with_vad(timeout=10, idle_timeout=15):
-  """Record audio while voice is detected using VAD with better filtering"""
+  """Record audio while voice is detected using VAD with filtering and timeout"""
   vad = webrtcvad.Vad()
   vad.set_mode(VAD_MODE)
 
@@ -86,23 +87,32 @@ def record_with_vad(timeout=10, idle_timeout=15):
     while True:
       current_time = time.time()
 
-      # Exit if idle_timeout exceeded without detecting voice
+      # Exit if idle timeout passed and no speech triggered
       if not triggered and (current_time - start_time > idle_timeout):
-        print("🛑 Idle timeout reached.")
+        print("🛑 Idle timeout reached (no voice detected).")
         break
 
-      frame = stream.read(FRAME_SIZE, exception_on_overflow=False)
+      try:
+        frame = stream.read(FRAME_SIZE, exception_on_overflow=False)
+      except IOError as e:
+        print(f"⚠️ Stream read error: {e}")
+        continue
+
+      if len(frame) < FRAME_SIZE * BYTES_PER_SAMPLE:
+        print("⚠️ Incomplete frame, skipping...")
+        continue
+
       is_speech = vad.is_speech(frame, SAMPLE_RATE)
 
       if not triggered:
         ring_buffer.append((frame, is_speech))
-        num_voiced = len([f for f, speech in ring_buffer if speech and is_loud_enough(f)])
+        num_voiced = sum(1 for _, speech in ring_buffer if speech and is_loud_enough(_))
 
         if num_voiced > 0.9 * ring_buffer.maxlen:
           triggered = True
           voice_start_time = current_time
-          print("🎙️  Real voice detected, recording...")
-          frames.extend([f for f, _ in ring_buffer])
+          print("🎙️ Voice detected. Start recording...")
+          frames.extend(f for f, _ in ring_buffer)
           ring_buffer.clear()
 
       else:
@@ -119,7 +129,7 @@ def record_with_vad(timeout=10, idle_timeout=15):
           silence_start = None
 
         if current_time - voice_start_time > timeout:
-          print("⏱️ Timeout reached, stopping recording.")
+          print("⏱️ Max recording time reached.")
           break
 
   finally:
@@ -128,9 +138,10 @@ def record_with_vad(timeout=10, idle_timeout=15):
     pa.terminate()
 
   if not frames:
-    print("⚠️  No valid voice recorded.")
+    print("⚠️  No voice data recorded.")
     return None
 
+  # Save and return WAV data
   wav_buffer = io.BytesIO()
   with wave.open(wav_buffer, "wb") as wf:
     wf.setnchannels(CHANNELS)
@@ -138,6 +149,7 @@ def record_with_vad(timeout=10, idle_timeout=15):
     wf.setframerate(SAMPLE_RATE)
     wf.writeframes(b''.join(frames))
 
+  # Optional: save to temp file for debugging
   with open("temp_record.wav", "wb") as f:
     f.write(wav_buffer.getvalue())
 
@@ -177,7 +189,7 @@ def listen_mode():
       if response_audio:
         play_audio(response_audio)
     else:
-      print("🔕 No more response, returning to standby mode...")
+      print("⌛️ Returning to standby mode...")
       play_local_audio("standby.mp3")
       print("🔁 Returned to standby mode.\n---\n\n")
       print("🤖 Say 'lilo' to wake up the assistant.")
@@ -186,7 +198,7 @@ def listen_mode():
 
 
 def wake_word_detection():
-  import speech_recognition as sr
+  """Detect wake word using speech recognition"""
   recognizer = sr.Recognizer()
   try:
     mic = sr.Microphone()
@@ -202,33 +214,37 @@ def wake_word_detection():
       recognizer.adjust_for_ambient_noise(source, duration=1.5)
       print("✅ Noise adjustment completed.")
   except Exception as e:
-    print(f"❌ Error during listening: {e}")
+    print(f"❌ Error during noise adjustment: {e}")
+    return
 
   print(f"\n🤖 Say '{WAKE_WORD}' to wake up the assistant.")
   print("🎧 Listening for wake word...")
   while True:
-    with mic as source:
-      try:
+    try:
+      with mic as source:
         audio = recognizer.listen(source)
-        text = recognizer.recognize_google(audio).lower()
-        print(f"🦻 Heard: {text}")
+      text = recognizer.recognize_google(audio).lower()
+      print(f"🦻 Heard: {text}")
 
-        if WAKE_WORD in text:
-          print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
-          play_local_audio("wake-up.mp3")
-          listen_mode()
-        else:
-          print("❌ Skipping, because it's not a wake word\n")
-          play_local_audio("skip.mp3")
-          print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
-          print("🎧 Listening for wake word...")
-          pass
+      if WAKE_WORD in text:
+        print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
+        play_local_audio("wake-up.mp3")
+        listen_mode()
+      else:
+        print("❌ Skipping, because it's not a wake word\n")
+        play_local_audio("skip.mp3")
+        print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+        print("🎧 Listening for wake word...")
 
-      except sr.UnknownValueError:
-        # print("No wake word detected\n")
-        pass
-      except sr.RequestError:
-        print("Speech recognition service unavailable\n")
+    except sr.UnknownValueError:
+      pass  # No speech detected or unrecognized speech
+    except sr.RequestError:
+      print("❌ Speech recognition service unavailable\n")
+    except KeyboardInterrupt:
+      print("👋 Stopping wake word detection...")
+      break
+    except Exception as e:
+      print(f"❌ Unexpected error: {e}")
 
 
 if __name__ == "__main__":
