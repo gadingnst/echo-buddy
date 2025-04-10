@@ -60,7 +60,7 @@ def is_loud_enough(frame, threshold=ENERGY_THRESHOLD):
   return rms > threshold
 
 
-def record_with_vad(timeout=10):
+def record_with_vad(timeout=10, idle_timeout=15):
   """Record audio while voice is detected using VAD with better filtering"""
   vad = webrtcvad.Vad()
   vad.set_mode(VAD_MODE)
@@ -84,6 +84,13 @@ def record_with_vad(timeout=10):
 
   try:
     while True:
+      current_time = time.time()
+
+      # Exit if idle_timeout exceeded without detecting voice
+      if not triggered and (current_time - start_time > idle_timeout):
+        print("⏳ Idle timeout reached, returning to standby...")
+        break
+
       frame = stream.read(FRAME_SIZE, exception_on_overflow=False)
       is_speech = vad.is_speech(frame, SAMPLE_RATE)
 
@@ -93,7 +100,7 @@ def record_with_vad(timeout=10):
 
         if num_voiced > 0.9 * ring_buffer.maxlen:
           triggered = True
-          voice_start_time = time.time()
+          voice_start_time = current_time
           print("🎙️  Real voice detected, recording...")
           frames.extend([f for f, _ in ring_buffer])
           ring_buffer.clear()
@@ -104,14 +111,14 @@ def record_with_vad(timeout=10):
 
         if not is_speech:
           if silence_start is None:
-            silence_start = time.time()
-          elif time.time() - silence_start > SILENCE_DURATION:
+            silence_start = current_time
+          elif current_time - silence_start > SILENCE_DURATION:
             print("🛑 Silence detected, stopping recording.")
             break
         else:
           silence_start = None
 
-        if time.time() - voice_start_time > timeout:
+        if current_time - voice_start_time > timeout:
           print("⏱️ Timeout reached, stopping recording.")
           break
 
@@ -121,7 +128,7 @@ def record_with_vad(timeout=10):
     pa.terminate()
 
   if not frames:
-    print("⚠️ No valid voice recorded.")
+    print("⚠️  No valid voice recorded.")
     return None
 
   wav_buffer = io.BytesIO()
@@ -170,7 +177,9 @@ def listen_mode():
       if response_audio:
         play_audio(response_audio)
     else:
-      print("🔕 No more response, returning to standby mode...\n\n\n\n")
+      print("🔕 No more response, returning to standby mode...")
+      play_local_audio("standby.mp3")
+      print("\n\n\n\n🤖 Say 'lilo' to wake up the assistant.")
       break
 
 
