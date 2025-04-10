@@ -2,9 +2,13 @@ import os
 import pyaudio
 import wave
 import requests
-import speech_recognition as sr
 import io
 import urllib.parse
+import webrtcvad
+import collections
+import time
+import struct
+import math
 
 # API configuration
 WAKE_WORD = "lilo"
@@ -12,21 +16,30 @@ ASSETS_PATH = "assets/"
 BASE_URL = "http://192.168.1.101:3000"
 SPEECH_TO_SPEECH_API = f"{BASE_URL}/api/speech-to-speech/generate?key=gadingnst&format="
 
-SAMPLE_RATE = 48000  # Use 48000 Hz sample rate
+# Audio configuration
+SAMPLE_RATE = 48000 # Sample rate for audio recording (allowed values: 8000, 16000, 32000, 48000)
+FRAME_DURATION = 20  # ms (allows 10ms, 20ms, 30ms frames)
+VAD_MODE = 3  # 0-3, 0 is least aggressive, 3 is most aggressive
+CHANNELS = 1  # Number of audio channels (1 for mono, 2 for stereo)
+FORMAT = pyaudio.paInt16  # Audio format (16-bit PCM)
+BYTES_PER_SAMPLE = 2  # Bytes per sample
+FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION / 1000)  # Number of audio frames per buffer
+
+# Silence configuration
+ENERGY_THRESHOLD = 600  # higher threshold to avoid noise misfire
+SILENCE_DURATION = 1.2  # detect silence if 1.2 seconds of silence
+
 
 def log_ai_headers(response):
   """Display AI-Text-Request and AI-Text-Response headers if available"""
   request_text = response.headers.get("AI-Text-Request", "N/A")
   response_text = response.headers.get("AI-Text-Response", "N/A")
-
-  # Decode URI if the header is not empty
   request_text = urllib.parse.unquote(request_text) if request_text != "N/A" else "N/A"
   response_text = urllib.parse.unquote(response_text) if response_text != "N/A" else "N/A"
-
-  # Only log if the text is not "N/A"
   print("\n🧾 Response Headers:")
   print(f"---\n📥 AI-Text-Request:\n'{request_text}'\n")
   print(f"📤 AI-Text-Response:\n'{response_text}'\n---\n")
+
 
 def play_local_audio(filename):
   """Play an MP3 audio file from the assets folder"""
@@ -34,41 +47,95 @@ def play_local_audio(filename):
   with open(path, "rb") as f:
     play_audio(f.read())
 
-def record_dynamic_audio():
-  """Record voice using 48000 Hz"""
-  recognizer = sr.Recognizer()
-  
-  # Adjust recognition parameters
-  # recognizer.energy_threshold = 300  # Increase energy threshold for better voice detection
-  # recognizer.dynamic_energy_threshold = True  # Enable dynamic energy threshold
-  # recognizer.pause_threshold = 0.8  # Reduce pause threshold for better continuous recording
-  # recognizer.phrase_threshold = 0.3  # Adjust phrase threshold
 
-  mic = sr.Microphone(sample_rate=SAMPLE_RATE)  # Ensure 48000 Hz is used
+def is_loud_enough(frame, threshold=ENERGY_THRESHOLD):
+  # Convert frame to 16-bit signed integers
+  count = len(frame) // 2
+  shorts = struct.unpack(f"{count}h", frame)
 
-  print("🎤 Recording... Speak now!")
-  with mic as source:
-    recognizer.adjust_for_ambient_noise(source, duration=1)
-    try:
-      # For longer recordings: increase timeout to 30s and phrase_time_limit to 20s
-      audio = recognizer.listen(source, timeout=15, phrase_time_limit=10)
-    except sr.WaitTimeoutError:
-      print("⏳ No response detected, returning to standby mode...")
-      return None
-      
-  # Save into a WAV buffer
+  # Calculate RMS
+  sum_squares = sum(sample**2 for sample in shorts)
+  rms = math.sqrt(sum_squares / count)
+
+  return rms > threshold
+
+
+def record_with_vad(timeout=10):
+  """Record audio while voice is detected using VAD with better filtering"""
+  vad = webrtcvad.Vad()
+  vad.set_mode(VAD_MODE)
+
+  pa = pyaudio.PyAudio()
+  stream = pa.open(
+    format=FORMAT,
+    channels=CHANNELS,
+    rate=SAMPLE_RATE,
+    input=True,
+    frames_per_buffer=FRAME_SIZE
+  )
+
+  print("🎤 Listening with VAD (waiting for real voice)...")
+  frames = []
+  ring_buffer = collections.deque(maxlen=15)
+  triggered = False
+  start_time = time.time()
+  voice_start_time = None
+  silence_start = None
+
+  try:
+    while True:
+      frame = stream.read(FRAME_SIZE, exception_on_overflow=False)
+      is_speech = vad.is_speech(frame, SAMPLE_RATE)
+
+      if not triggered:
+        ring_buffer.append((frame, is_speech))
+        num_voiced = len([f for f, speech in ring_buffer if speech and is_loud_enough(f)])
+
+        if num_voiced > 0.9 * ring_buffer.maxlen:
+          triggered = True
+          voice_start_time = time.time()
+          print("🎙️  Real voice detected, recording...")
+          frames.extend([f for f, _ in ring_buffer])
+          ring_buffer.clear()
+
+      else:
+        frames.append(frame)
+        ring_buffer.append((frame, is_speech))
+
+        if not is_speech:
+          if silence_start is None:
+            silence_start = time.time()
+          elif time.time() - silence_start > SILENCE_DURATION:
+            print("🛑 Silence detected, stopping recording.")
+            break
+        else:
+          silence_start = None
+
+        if time.time() - voice_start_time > timeout:
+          print("⏱️ Timeout reached, stopping recording.")
+          break
+
+  finally:
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
+
+  if not frames:
+    print("⚠️ No valid voice recorded.")
+    return None
+
   wav_buffer = io.BytesIO()
   with wave.open(wav_buffer, "wb") as wf:
-    wf.setnchannels(1)
-    wf.setsampwidth(2)  # 16-bit PCM
-    wf.setframerate(SAMPLE_RATE)  # Ensure 48000 Hz
-    wf.writeframes(audio.frame_data)
+    wf.setnchannels(CHANNELS)
+    wf.setsampwidth(BYTES_PER_SAMPLE)
+    wf.setframerate(SAMPLE_RATE)
+    wf.writeframes(b''.join(frames))
 
-  # Save the recorded audio as WAV
   with open("temp_record.wav", "wb") as f:
     f.write(wav_buffer.getvalue())
 
   return wav_buffer.getvalue()
+
 
 def send_audio_to_api(audio_data):
   """Send WAV audio to API and receive MP3 response"""
@@ -78,11 +145,12 @@ def send_audio_to_api(audio_data):
 
   if response.status_code == 200:
     print("📩 Received response audio!")
-    log_ai_headers(response)  # Log AI headers
-    return response.content  # Return MP3 audio from API
+    log_ai_headers(response)
+    return response.content
   else:
     print("❌ Error:", response.status_code, response.text)
     return None
+
 
 def play_audio(audio_data):
   """Play MP3 audio using mpg123"""
@@ -92,19 +160,22 @@ def play_audio(audio_data):
   os.system("mpg123 -q temp_audio.mp3")
   print("✅ Audio playback completed!\n\n")
 
+
 def listen_mode():
-  """Enter listen mode and stay until no voice is detected"""
+  """Enter listen mode with VAD-based recording"""
   while True:
-    audio_data = record_dynamic_audio()
+    audio_data = record_with_vad()
     if audio_data:
       response_audio = send_audio_to_api(audio_data)
       if response_audio:
         play_audio(response_audio)
     else:
       print("🔕 No more response, returning to standby mode...\n\n\n\n")
-      break  # Exit listen mode if no voice detected
+      break
+
 
 def wake_word_detection():
+  import speech_recognition as sr
   recognizer = sr.Recognizer()
   try:
     mic = sr.Microphone()
@@ -131,11 +202,7 @@ def wake_word_detection():
 
         if WAKE_WORD in text:
           print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
-          
-          # Play sound when wake word is detected
           play_local_audio("wake-up.mp3")
-          
-          # Enter listen mode after the first response
           listen_mode()
           print("🔁 Returning to standby mode...")
         else:
@@ -148,6 +215,7 @@ def wake_word_detection():
         print("No wake word detected\n")
       except sr.RequestError:
         print("Speech recognition service unavailable\n")
+
 
 if __name__ == "__main__":
   wake_word_detection()
