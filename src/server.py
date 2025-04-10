@@ -196,13 +196,15 @@ def wake_word_detection():
 
   try:
     with mic as source:
-      recognizer.adjust_for_ambient_noise(source)
-      print("🎤 Say something to calibrate the microphone (e.g. 'Test')...")
-      audio = recognizer.listen(source)
+      print("🎤 Adjusting for ambient noise...")
+      # recognizer.energy_threshold = 350  
+      # recognizer.pause_threshold = 0.8  # waktu hening antar kata (opsional)
+      recognizer.adjust_for_ambient_noise(source, duration=1.5)
+      print("✅ Noise adjustment completed.")
   except Exception as e:
     print(f"❌ Error during listening: {e}")
 
-  print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+  print(f"\n🤖 Say '{WAKE_WORD}' to wake up the assistant.")
   print("🎧 Listening for wake word...")
   while True:
     with mic as source:
