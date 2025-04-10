@@ -37,17 +37,25 @@ def play_local_audio(filename):
 def record_dynamic_audio():
   """Record voice using 48000 Hz"""
   recognizer = sr.Recognizer()
+  
+  # Adjust recognition parameters
+  # recognizer.energy_threshold = 300  # Increase energy threshold for better voice detection
+  # recognizer.dynamic_energy_threshold = True  # Enable dynamic energy threshold
+  # recognizer.pause_threshold = 0.8  # Reduce pause threshold for better continuous recording
+  # recognizer.phrase_threshold = 0.3  # Adjust phrase threshold
+
   mic = sr.Microphone(sample_rate=SAMPLE_RATE)  # Ensure 48000 Hz is used
 
   print("🎤 Recording... Speak now!")
   with mic as source:
-    recognizer.adjust_for_ambient_noise(source)
+    recognizer.adjust_for_ambient_noise(source, duration=1)
     try:
-      audio = recognizer.listen(source, timeout=10, phrase_time_limit=3)
+      # For longer recordings: increase timeout to 30s and phrase_time_limit to 20s
+      audio = recognizer.listen(source, timeout=15, phrase_time_limit=10)
     except sr.WaitTimeoutError:
       print("⏳ No response detected, returning to standby mode...")
       return None
-
+      
   # Save into a WAV buffer
   wav_buffer = io.BytesIO()
   with wave.open(wav_buffer, "wb") as wf:
@@ -55,6 +63,10 @@ def record_dynamic_audio():
     wf.setsampwidth(2)  # 16-bit PCM
     wf.setframerate(SAMPLE_RATE)  # Ensure 48000 Hz
     wf.writeframes(audio.frame_data)
+
+  # Save the recorded audio as WAV
+  with open("temp_record.wav", "wb") as f:
+    f.write(wav_buffer.getvalue())
 
   return wav_buffer.getvalue()
 
