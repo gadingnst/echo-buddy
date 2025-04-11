@@ -206,46 +206,45 @@ def wake_word_detection():
     print(f"❌ Error initializing microphone: {e}")
     return
 
-  try:
-    with mic as source:
+  with mic as source:
+    try:
       print("🎤 Adjusting for ambient noise...")
       # recognizer.energy_threshold = 350  
-      # recognizer.pause_threshold = 0.8  # waktu hening antar kata (opsional)
+      # recognizer.pause_threshold = 0.8  # pause between words (optional)
       recognizer.adjust_for_ambient_noise(source, duration=1.5)
       print("✅ Noise adjustment completed.")
-  except Exception as e:
-    print(f"❌ Error during noise adjustment: {e}")
-    return
 
-  print(f"\n🤖 Say '{WAKE_WORD}' to wake up the assistant.")
-  print("🎧 Listening for wake word...")
-  while True:
-    try:
-      with mic as source:
-        audio = recognizer.listen(source)
-      text = recognizer.recognize_google(audio).lower()
-      print(f"🦻 Heard: {text}")
+      print(f"\n🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+      print("🎧 Listening for wake word...")      
+      while True:
+        try:
+          audio = recognizer.listen(source)
+          text = recognizer.recognize_google(audio).lower()
+          print(f"🦻 Heard: {text}")
 
-      if WAKE_WORD in text:
-        print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
-        play_local_audio("wake-up.mp3")
-        listen_mode()
-      else:
-        print("❌ Skipping, because it's not a wake word\n")
-        play_local_audio("skip.mp3")
-        print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
-        print("🎧 Listening for wake word...")
+          if WAKE_WORD in text:
+            print(f"\n🚀 Wake word '{WAKE_WORD}' detected in: '{text}'")
+            play_local_audio("wake-up.mp3")
+            listen_mode()
+          else:
+            print("❌ Skipping, because it's not a wake word\n")
+            play_local_audio("skip.mp3")
+            print(f"🤖 Say '{WAKE_WORD}' to wake up the assistant.")
+            print("🎧 Listening for wake word...")
 
-    except sr.UnknownValueError:
-      pass  # No speech detected or unrecognized speech
-    except sr.RequestError:
-      print("❌ Speech recognition service unavailable\n")
-    except KeyboardInterrupt:
-      print("👋 Stopping wake word detection...")
-      break
+        except sr.UnknownValueError:
+          pass  # No speech detected or unrecognized speech
+        except sr.RequestError:
+          print("❌ Speech recognition service unavailable\n")
+        except KeyboardInterrupt:
+          print("👋 Stopping wake word detection...")
+          break
+        except Exception as e:
+          print(f"❌ Unexpected error: {e}")
+          
     except Exception as e:
-      print(f"❌ Unexpected error: {e}")
-
+      print(f"❌ Error during noise adjustment: {e}")
+      return
 
 if __name__ == "__main__":
   wake_word_detection()
